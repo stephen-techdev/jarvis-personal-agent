@@ -1,14 +1,8 @@
 import { useRef, useState } from 'react'
 import type { Fact, Note, Reminder, Settings } from '../types'
 import type { ModelOption } from '../lib/catalog'
-
-const LANGUAGES = [
-  { value: 'en-IN', label: 'English (India)' },
-  { value: 'en-US', label: 'English (US)' },
-  { value: 'en-GB', label: 'English (UK)' },
-  { value: 'en-AU', label: 'English (Australia)' },
-  { value: 'hi-IN', label: 'Hindi (India)' },
-]
+import { LANGUAGES, languageName, voiceSample } from '../lib/languages'
+import { hasVoiceFor, remoteSpeechAvailable, speak, voicesForLanguage } from '../lib/speech'
 
 interface SettingsProps {
   settings: Settings
@@ -28,6 +22,12 @@ export function SettingsPanel({ settings, onChange, voices, models, hasKey, dire
   const fileRef = useRef<HTMLInputElement>(null)
   const openrouterModels = models.filter((model) => model.provider === 'openrouter')
   const visionModels = openrouterModels.filter((model) => model.vision)
+  const languageVoices = voicesForLanguage(settings.language, voices)
+  const voiceAvailable = hasVoiceFor(settings.language, voices)
+  const cloudVoice = remoteSpeechAvailable()
+  const canSpeak = voiceAvailable || cloudVoice
+
+  const changeLanguage = (language: string) => onChange({ language, voiceURI: '' })
 
   const renderModelOptions = (list: ModelOption[], current: string) => (
     <>
@@ -139,26 +139,58 @@ export function SettingsPanel({ settings, onChange, voices, models, hasKey, dire
         <section className="field-group">
           <h3>Voice</h3>
           <label className="field">
+            <span>Voice + reply language</span>
+            <select value={settings.language} onChange={(event) => changeLanguage(event.target.value)}>
+              {LANGUAGES.map((language) => (
+                <option key={language.value} value={language.value}>
+                  {language.native === language.label ? language.label : `${language.label} · ${language.native}`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <p className="hint">
+            The microphone, the spoken reply and the assistant's written answer all use this language. Tamil is the default.
+          </p>
+          <label className="field">
             <span>Speaking voice</span>
-            <select value={settings.voiceURI} onChange={(event) => onChange({ voiceURI: event.target.value })}>
-              <option value="">Auto (best available)</option>
-              {voices.map((voice) => (
+            <select
+              value={settings.voiceURI}
+              onChange={(event) => onChange({ voiceURI: event.target.value })}
+              disabled={languageVoices.length === 0}
+            >
+              <option value="">{voiceAvailable ? 'Auto (best matching voice)' : cloudVoice ? 'Cloud voice (relay)' : 'No matching voice installed'}</option>
+              {languageVoices.map((voice) => (
                 <option key={voice.voiceURI} value={voice.voiceURI}>
                   {voice.name} ({voice.lang})
                 </option>
               ))}
+              {settings.voiceURI && !languageVoices.some((voice) => voice.voiceURI === settings.voiceURI) && (
+                <option value={settings.voiceURI}>Previous voice (other language)</option>
+              )}
             </select>
           </label>
-          <label className="field">
-            <span>Microphone language</span>
-            <select value={settings.language} onChange={(event) => onChange({ language: event.target.value })}>
-              {LANGUAGES.map((language) => (
-                <option key={language.value} value={language.value}>
-                  {language.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="voice-actions">
+            <button
+              className="btn ghost small"
+              onClick={() => speak(voiceSample(settings.language), settings)}
+              disabled={!canSpeak}
+            >
+              Test voice
+            </button>
+            <span className="hint">
+              {voiceAvailable
+                ? `${languageVoices.length} ${languageName(settings.language)} voice${languageVoices.length > 1 ? 's' : ''} available`
+                : cloudVoice
+                  ? `No local ${languageName(settings.language)} voice — using the free relay voice`
+                  : `No ${languageName(settings.language)} voice on this device`}
+            </span>
+          </div>
+          {!canSpeak && (
+            <p className="hint warn">
+              Install a {languageName(settings.language)} text-to-speech voice in your device settings (Windows: Settings → Time &amp; Language →
+              Speech; Android: Settings → Text-to-speech), then reload. Chrome and Edge can also use their online voices.
+            </p>
+          )}
           <label className="field range">
             <span>Rate · {settings.rate.toFixed(2)}×</span>
             <input type="range" min="0.6" max="1.6" step="0.02" value={settings.rate} onChange={(event) => onChange({ rate: Number(event.target.value) })} />

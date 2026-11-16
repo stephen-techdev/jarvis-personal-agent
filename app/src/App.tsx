@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Attachment, ChatMessage, Fact, Note, Reminder, Settings, Source, Status } from './types'
 import { DEFAULT_FAST_MODEL, DEFAULT_MODEL, DEFAULT_VISION_MODEL } from './lib/models'
+import { DEFAULT_LANGUAGE, LANGUAGES, languageName, languageShort } from './lib/languages'
 import { load, save, uid } from './lib/storage'
 import { buildSystemPrompt } from './lib/prompts'
 import { streamWithFallback, type ChatMsg, type ContentPart, type QueueItem } from './lib/openrouter'
@@ -8,7 +9,8 @@ import { discoverModels, labelFor, resolveQueue, type ModelOption } from './lib/
 import { DIRECT_KEY_MODE, PROXY_ENABLED } from './lib/config'
 import { extractFacts, mergeFacts, summarizeConversation } from './lib/memory'
 import { research } from './lib/research'
-import { createRecognizer, englishVoices, recognizerSupported, speak, splitSentences, stopSpeaking, type RecognitionLike } from './lib/speech'
+import { allVoices, createRecognizer, recognizerSupported, speak, splitSentences, stopSpeaking, type RecognitionLike } from './lib/speech'
+import { startAutoUpdate } from './lib/updater'
 import { captureScreen, fileToAttachment, screenCaptureSupported } from './lib/vision'
 import { Markdown } from './components/Markdown'
 import { Orb } from './components/Orb'
@@ -26,7 +28,7 @@ const DEFAULT_SETTINGS: Settings = {
   rate: 1.02,
   pitch: 0.95,
   autoMemory: true,
-  language: 'en-IN',
+  language: DEFAULT_LANGUAGE,
 }
 
 const RESEARCH_RE = /^(search|look up|lookup|google|research|find out|browse)\b[\s:,-]*(.*)$/i
@@ -82,7 +84,8 @@ export default function App() {
   const [panel, setPanel] = useState<'none' | 'settings' | 'memory'>('none')
   const [cameraOpen, setCameraOpen] = useState(false)
   const [toastMsg, setToastMsg] = useState('')
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(() => englishVoices())
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(() => allVoices())
+  const [updateReady, setUpdateReady] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -114,13 +117,22 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const update = () => setVoices(englishVoices())
+    const update = () => setVoices(allVoices())
     update()
     if (typeof speechSynthesis !== 'undefined') speechSynthesis.addEventListener('voiceschanged', update)
     return () => {
       if (typeof speechSynthesis !== 'undefined') speechSynthesis.removeEventListener('voiceschanged', update)
     }
   }, [])
+
+  useEffect(() => startAutoUpdate(() => setUpdateReady(true)), [])
+
+  useEffect(() => {
+    if (!updateReady || busy) return
+    toast('New version installed — refreshing…')
+    const timer = window.setTimeout(() => window.location.reload(), 1500)
+    return () => window.clearTimeout(timer)
+  }, [updateReady, busy])
 
   useEffect(() => {
     const node = scrollRef.current
@@ -333,6 +345,7 @@ export default function App() {
       facts,
       notes,
       summary,
+      language: settings.language,
       extra: extraContext,
     })
 
@@ -623,6 +636,23 @@ export default function App() {
           </div>
         </div>
         <div className="top-actions">
+          <label className="lang-picker" title={`Voice + reply language: ${languageName(settings.language)}`}>
+            <span className="sr-only">Voice and reply language</span>
+            <select
+              value={settings.language}
+              onChange={(event) => {
+                const language = event.target.value
+                setSettings((prev) => ({ ...prev, language, voiceURI: '' }))
+              }}
+              aria-label="Voice and reply language"
+            >
+              {LANGUAGES.map((language) => (
+                <option key={language.value} value={language.value}>
+                  {languageShort(language.value)}
+                </option>
+              ))}
+            </select>
+          </label>
           <span className="model-badge" title="Active free model">
             {labelFor(activeModel, catalog)}
           </span>

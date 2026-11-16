@@ -28,11 +28,12 @@ Ecosystem references that informed the roadmap: **Letta/MemGPT** (tiered memory)
 - **Runtime model discovery** — the live free catalog is fetched from OpenRouter, cached for an hour, with a bundled static list as offline fallback.
 - **Automatic model queue** — your preferred model first, alternatives shuffled behind it, 90-second cooldowns for failures, and Pollinations as the final keyless fallback.
 - **Seamless mid-answer continuation** — when a provider cuts a stream at its limit, the partial reply is passed to the next model with a continue instruction instead of restarting the conversation.
-- **Voice I/O** — browser speech recognition + sentence-streamed TTS with barge-in.
+- **Voice I/O** — push-to-talk speech recognition + sentence-streamed TTS with barge-in, in **30 languages**. Tamil is the default; one switch drives the microphone, the written answer and the spoken voice. Device voices are preferred, with the free `jarvis-tts` relay covering languages the device lacks.
+- **Self-updating PWA** — each build emits `version.json` with a build id; the open app checks after load, every five minutes and when the tab regains focus, then reloads itself when idle. No manual reinstall.
 - **Vision** — screen share, camera capture, image upload → free OpenRouter vision model, no key.
 - **Free research** — DuckDuckGo + page excerpts, cited sources under each answer.
 - **Personal memory** — manual facts, auto-extracted facts every 4 turns keyed / 8 turns on the relay, notes, reminders, rolling summaries, export/import.
-- **Persona** — named assistant (Jarvis), configurable user name and voice.
+- **Persona** — named assistant (Jarvis), configurable user name and voice; replies in the selected language with a calm, precise tone.
 - **Installable PWA** — laptop, Android, iPhone (Add to Home Screen).
 
 ### Deliberately deferred (requires a backend / native capabilities)

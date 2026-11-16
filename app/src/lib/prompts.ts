@@ -1,4 +1,5 @@
 import type { Fact, Note } from '../types'
+import { languageInstruction } from './languages'
 
 export interface PromptContext {
   assistantName: string
@@ -6,6 +7,7 @@ export interface PromptContext {
   facts: Fact[]
   notes: Note[]
   summary: string
+  language?: string
   extra?: string
 }
 
@@ -19,6 +21,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
   )
   if (user) lines.push(`The user's name is ${user}. Use it naturally, not in every sentence.`)
   lines.push(`Current date and time: ${new Date().toLocaleString()}.`)
+  if (ctx.language) lines.push(languageInstruction(ctx.language))
 
   lines.push(
     `How to respond:
