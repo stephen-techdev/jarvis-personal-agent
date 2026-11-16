@@ -6,7 +6,7 @@ This is the cross-device web client of the Jarvis project. It runs entirely in t
 
 ## Live demo
 
-> Deployed at: **https://stephen862k7-byte.github.io/jarvis-personal-agent/** *(update if the repo name changes)*
+> Deployed at: **https://stephen-techdev.github.io/jarvis-personal-agent/**
 
 1. Open the link on laptop or phone.
 2. Get a free key at [openrouter.ai/keys](https://openrouter.ai/keys) (no card needed for free models).
@@ -100,7 +100,7 @@ See [FEATURES.md](FEATURES.md) for the open-source personal-agent analysis that 
 
 ## Tech stack
 
-React 19 · TypeScript · Vite 7 · OpenRouter (free tier) · Web Speech API · MediaDevices · DuckDuckGo + Jina Reader · GitHub Pages + Actions.
+React 19 · TypeScript · Vite 7 · OpenRouter (free tier) · Web Speech API · MediaDevices · DuckDuckGo + Jina Reader · GitHub Pages.
 
 ## License
 
