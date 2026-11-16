@@ -4,6 +4,8 @@ Your own personal AI companion: **talk to it, show it your screen or camera, mak
 
 This is the cross-device web client of the Jarvis project. It runs entirely in the browser as an installable PWA: no server, no database, no paid keys. It calls OpenRouter's **free model tier** directly with a key that you paste once and that never leaves your device.
 
+![J.A.R.V.I.S preview](docs/preview.jpg)
+
 ## Live demo
 
 > Deployed at: **https://stephen-techdev.github.io/jarvis-personal-agent/**
