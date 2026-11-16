@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Attachment, ChatMessage, Fact, Note, Reminder, Settings, Source, Status } from './types'
-import { DEFAULT_FAST_MODEL, DEFAULT_MODEL, DEFAULT_VISION_MODEL, FREE_MODELS, buildFallbackChain, modelInfo, modelLabel } from './lib/models'
+import { DEFAULT_FAST_MODEL, DEFAULT_MODEL, DEFAULT_VISION_MODEL } from './lib/models'
 import { load, save, uid } from './lib/storage'
 import { buildSystemPrompt } from './lib/prompts'
-import { streamWithFallback, type ChatMsg, type ContentPart } from './lib/openrouter'
+import { streamWithFallback, type ChatMsg, type ContentPart, type QueueItem } from './lib/openrouter'
+import { discoverModels, labelFor, resolveQueue, type ModelOption } from './lib/catalog'
+import { DIRECT_KEY_MODE, PROXY_ENABLED } from './lib/config'
 import { extractFacts, mergeFacts, summarizeConversation } from './lib/memory'
 import { research } from './lib/research'
 import { createRecognizer, englishVoices, recognizerSupported, speak, splitSentences, stopSpeaking, type RecognitionLike } from './lib/speech'
@@ -39,16 +41,31 @@ const STATUS_TEXT: Record<Status, string> = {
 function friendlyError(error: unknown): string {
   const status = (error as { status?: number })?.status
   const text = error instanceof Error ? error.message : String(error)
-  if (status === 401) return 'Your OpenRouter key was rejected. Update it in Settings.'
-  if (status === 402) return 'This OpenRouter key has no free-model quota. Create a fresh free key at openrouter.ai/keys.'
-  if (status === 429) return 'All free models are rate-limited right now. Wait a minute, then retry or pick another model in Settings.'
+  if (status === 401)
+    return PROXY_ENABLED
+      ? 'The free relay is unavailable right now. Try again in a moment.'
+      : 'Your OpenRouter key was rejected. Remove it in Settings to keep using free public mode.'
+  if (status === 402)
+    return PROXY_ENABLED
+      ? 'The free relay has no quota left right now. Try again later.'
+      : 'This OpenRouter key has no free-model quota. Remove it in Settings to keep using free public mode.'
+  if (status === 429) return 'Every free model is busy right now. Give it a minute and send again — limits are shared across all free models.'
   if (status && status >= 500) return 'The model provider is having trouble. Try again in a moment.'
   if (text.includes('Failed to fetch')) return 'Network error. Check your connection and try again.'
   return `Something went wrong: ${text.slice(0, 240)}`
 }
 
+/** Old builds saved defaults that no longer work well (reasoning-only fast model, vision model without image endpoints). */
+function migrateSettings(stored: Partial<Settings>): Partial<Settings> {
+  const next = { ...stored }
+  if (next.fastModel === 'nvidia/nemotron-3.5-lightning:free') next.fastModel = DEFAULT_FAST_MODEL
+  if (next.visionModel === 'nvidia/nemotron-3.5-super-vl:free') next.visionModel = DEFAULT_VISION_MODEL
+  if (next.chatModel === 'thinkingmachines/inkling-2-small:free') next.chatModel = DEFAULT_MODEL
+  return next
+}
+
 export default function App() {
-  const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULT_SETTINGS, ...load<Partial<Settings>>('settings', {}) }))
+  const [settings, setSettings] = useState<Settings>(() => ({ ...DEFAULT_SETTINGS, ...migrateSettings(load<Partial<Settings>>('settings', {})) }))
   const [messages, setMessages] = useState<ChatMessage[]>(() => load('messages', []))
   const [facts, setFacts] = useState<Fact[]>(() => load('facts', []))
   const [notes, setNotes] = useState<Note[]>(() => load('notes', []))
@@ -59,7 +76,8 @@ export default function App() {
   const [attachment, setAttachment] = useState<Attachment | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<Status>('idle')
-  const [activeModel, setActiveModel] = useState('')
+  const [activeModel, setActiveModel] = useState<QueueItem | null>(null)
+  const [catalog, setCatalog] = useState<ModelOption[]>([])
   const [researchMode, setResearchMode] = useState(false)
   const [panel, setPanel] = useState<'none' | 'settings' | 'memory'>('none')
   const [cameraOpen, setCameraOpen] = useState(false)
@@ -84,6 +102,16 @@ export default function App() {
   useEffect(() => {
     factsRef.current = facts
   }, [facts])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void discoverModels(controller.signal)
+      .then((models) => setCatalog(models))
+      .catch(() => {
+        /* fall back to the bundled static catalog */
+      })
+    return () => controller.abort()
+  }, [])
 
   useEffect(() => {
     const update = () => setVoices(englishVoices())
@@ -231,6 +259,12 @@ export default function App() {
     const text = (override ?? input).trim()
     if (!text && !attachment) return
 
+    if (DIRECT_KEY_MODE && !settings.apiKey) {
+      setPanel('settings')
+      toast('Add your free OpenRouter key to start chatting.')
+      return
+    }
+
     if (recRef.current) {
       recRef.current.abort()
       recRef.current = null
@@ -253,12 +287,6 @@ export default function App() {
     const localReply = handleLocalCommand(text)
     if (localReply) {
       addAssistant(localReply)
-      return
-    }
-
-    if (!settings.apiKey) {
-      setPanel('settings')
-      toast('Add your free OpenRouter key to wake me up.')
       return
     }
 
@@ -321,11 +349,13 @@ export default function App() {
     const latestContent = parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts
     apiMessages.push({ role: 'user', content: latestContent })
 
-    const primary = needsVision ? settings.visionModel : settings.chatModel
-    if (needsVision && !modelInfo(primary)?.vision) {
-      toast('Selected model cannot see images — using the vision model.')
-    }
-    const models = buildFallbackChain(needsVision && !modelInfo(primary)?.vision ? settings.visionModel : primary, needsVision)
+    const queue = resolveQueue({
+      models: catalog,
+      primaryId: settings.chatModel,
+      visionId: settings.visionModel,
+      needsVision,
+      hasKey: Boolean(settings.apiKey) || PROXY_ENABLED,
+    })
 
     let accumulated = ''
     let spokenBuffer = ''
@@ -341,10 +371,11 @@ export default function App() {
     try {
       const used = await streamWithFallback({
         apiKey: settings.apiKey,
-        models,
+        queue,
         messages: apiMessages,
         signal: controller.signal,
-        onModel: (model) => setActiveModel(model),
+        onModel: (item) => setActiveModel(item),
+        onSwitch: (message) => toast(message),
         onToken: (token) => {
           accumulated += token
           if (ttsOn) {
@@ -361,10 +392,13 @@ export default function App() {
         },
       })
       setActiveModel(used)
+      const finalText = used.truncated
+        ? `${accumulated}\n\n_— free-model limits reached, so this reply stopped early. Say “continue” and I will pick it up._`
+        : accumulated
       setMessages((prev) =>
         prev.map((message) =>
           message.id === assistantId
-            ? { ...message, content: accumulated, sources: sources.length > 0 ? sources : undefined }
+            ? { ...message, content: finalText, sources: sources.length > 0 ? sources : undefined }
             : message,
         ),
       )
@@ -420,15 +454,17 @@ export default function App() {
   }
 
   async function afterReply(history: ChatMessage[], reply: string) {
-    if (!settings.apiKey) return
+    const provider = settings.apiKey || PROXY_ENABLED ? 'openrouter' : 'pollinations'
+    const model = settings.apiKey || PROXY_ENABLED ? settings.fastModel : 'openai-fast'
     const userTurns = history.filter((message) => message.role === 'user').length
     const fullHistory = [...history, { id: 'tmp', role: 'assistant' as const, content: reply, ts: Date.now() }]
+    const memoryEvery = settings.apiKey ? 4 : 8
 
-    if (settings.autoMemory && userTurns % 4 === 0) {
+    if (settings.autoMemory && userTurns % memoryEvery === 0) {
       try {
         const controller = new AbortController()
-        const timer = window.setTimeout(() => controller.abort(), 20000)
-        const incoming = await extractFacts(settings.apiKey, settings.fastModel, fullHistory, controller.signal)
+        const timer = window.setTimeout(() => controller.abort(), 25000)
+        const incoming = await extractFacts(provider, settings.apiKey, model, fullHistory, controller.signal)
         window.clearTimeout(timer)
         if (incoming.length > 0) {
           const merged = mergeFacts(factsRef.current, incoming)
@@ -445,8 +481,8 @@ export default function App() {
     if (fullHistory.length >= 36 && fullHistory.length % 18 === 0) {
       try {
         const controller = new AbortController()
-        const timer = window.setTimeout(() => controller.abort(), 25000)
-        const nextSummary = await summarizeConversation(settings.apiKey, settings.fastModel, fullHistory.slice(0, -16), controller.signal)
+        const timer = window.setTimeout(() => controller.abort(), 30000)
+        const nextSummary = await summarizeConversation(provider, settings.apiKey, model, fullHistory.slice(0, -16), controller.signal)
         window.clearTimeout(timer)
         if (nextSummary) setSummary(nextSummary)
       } catch {
@@ -573,7 +609,7 @@ export default function App() {
 
   const statusText = STATUS_TEXT[status]
   const totalMemories = facts.length + notes.length + reminders.filter((reminder) => !reminder.done).length
-  const showKeyBanner = !settings.apiKey
+  const needsKey = DIRECT_KEY_MODE && !settings.apiKey
   const visionReady = useMemo(() => screenCaptureSupported(), [])
 
   return (
@@ -587,8 +623,8 @@ export default function App() {
           </div>
         </div>
         <div className="top-actions">
-          <span className="model-badge" title="Active model">
-            {modelLabel(activeModel || settings.chatModel)}
+          <span className="model-badge" title="Active free model">
+            {labelFor(activeModel, catalog)}
           </span>
           <button
             className={`icon-btn ${ttsOn ? 'active' : ''}`}
@@ -623,11 +659,12 @@ export default function App() {
             </div>
             <h2>Good {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}{settings.userName ? `, ${settings.userName}` : ''}.</h2>
             <p>
-              I can talk, see your screen or camera, search the web, and remember what matters. Voice, vision and memory stay in your browser —
-              only your prompts and shared images go to the free model.
+              I run on free public models — no key, no setup. When one model hits its limit I quietly queue the next and continue the same answer.
+              I can talk, search the web, and remember what matters. Voice and memory stay in your browser.
             </p>
             <div className="feature-pills">
               <span>Voice</span>
+              {!DIRECT_KEY_MODE && <span>No key needed</span>}
               <span>Screen vision</span>
               <span>Free research</span>
               <span>Long-term memory</span>
@@ -639,10 +676,11 @@ export default function App() {
               <button onClick={() => void grabScreen()}>Look at my screen</button>
               <button onClick={() => void sendMessage('Help me plan my day')}>Plan my day</button>
             </div>
-            {showKeyBanner && (
+            {needsKey && (
               <div className="key-banner">
                 <p>
-                  <strong>One-time setup:</strong> paste your free OpenRouter key. It stays in this browser.
+                  <strong>One-time setup:</strong> paste your free OpenRouter key. It stays in this browser. (The hosted build normally includes a
+                  keyless relay, so this only appears for self-hosted builds without one.)
                 </p>
                 <button className="btn primary" onClick={() => setPanel('settings')}>Open settings</button>
               </div>
@@ -685,6 +723,9 @@ export default function App() {
           settings={settings}
           onChange={(patch) => setSettings((prev) => ({ ...prev, ...patch }))}
           voices={voices}
+          models={catalog}
+          hasKey={Boolean(settings.apiKey) || PROXY_ENABLED}
+          directMode={DIRECT_KEY_MODE}
           onClose={() => setPanel('none')}
           onExport={exportMemory}
           onImport={(file) => void importMemory(file)}
@@ -720,11 +761,6 @@ export default function App() {
       )}
 
       <footer className="composer-wrap">
-        {showKeyBanner && messages.length > 0 && (
-          <button className="key-strip" onClick={() => setPanel('settings')}>
-            Add your free OpenRouter key to start chatting →
-          </button>
-        )}
         {attachment && (
           <div className="attachment-chip">
             <img src={attachment.dataUrl} alt={attachment.label} />
@@ -737,7 +773,7 @@ export default function App() {
             ref={textareaRef}
             rows={1}
             value={input}
-            placeholder={status === 'listening' ? 'Listening…' : showKeyBanner ? 'Add your free key, then talk to me…' : 'Ask anything, or hold a thought…'}
+            placeholder={status === 'listening' ? 'Listening…' : needsKey ? 'Add your free key, then talk to me…' : 'Ask anything — no key needed…'}
             onChange={(event) => setInput(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -797,7 +833,7 @@ export default function App() {
           </div>
         </div>
         <p className="footnote">
-          {FREE_MODELS.length} free models · research via DuckDuckGo · your key and memory stay in this browser
+          {catalog.length || 14} free models · automatic queue + mid-answer switching · research via DuckDuckGo · memory stays in this browser
         </p>
       </footer>
     </div>

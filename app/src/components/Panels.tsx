@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { Fact, Note, Reminder, Settings } from '../types'
-import { FREE_MODELS } from '../lib/models'
+import type { ModelOption } from '../lib/catalog'
 
 const LANGUAGES = [
   { value: 'en-IN', label: 'English (India)' },
@@ -14,6 +14,9 @@ interface SettingsProps {
   settings: Settings
   onChange: (patch: Partial<Settings>) => void
   voices: SpeechSynthesisVoice[]
+  models: ModelOption[]
+  hasKey: boolean
+  directMode: boolean
   onClose: () => void
   onExport: () => void
   onImport: (file: File) => void
@@ -21,9 +24,22 @@ interface SettingsProps {
   onClearMemory: () => void
 }
 
-export function SettingsPanel({ settings, onChange, voices, onClose, onExport, onImport, onClearChat, onClearMemory }: SettingsProps) {
+export function SettingsPanel({ settings, onChange, voices, models, hasKey, directMode, onClose, onExport, onImport, onClearChat, onClearMemory }: SettingsProps) {
   const fileRef = useRef<HTMLInputElement>(null)
-  const visionModels = FREE_MODELS.filter((m) => m.vision)
+  const openrouterModels = models.filter((model) => model.provider === 'openrouter')
+  const visionModels = openrouterModels.filter((model) => model.vision)
+
+  const renderModelOptions = (list: ModelOption[], current: string) => (
+    <>
+      {!list.some((model) => model.id === current) && current && <option value={current}>{current.split('/').pop()?.replace(':free', '')} (current)</option>}
+      {list.map((model) => (
+        <option key={model.id} value={model.id}>
+          {model.label}
+          {model.vision ? ' · vision' : ''}
+        </option>
+      ))}
+    </>
+  )
 
   return (
     <aside className="drawer">
@@ -34,22 +50,35 @@ export function SettingsPanel({ settings, onChange, voices, onClose, onExport, o
         </button>
       </div>
       <div className="drawer-body">
-        <section className="field-group">
-          <label className="field">
-            <span>OpenRouter API key</span>
-            <input
-              type="password"
-              value={settings.apiKey}
-              placeholder="sk-or-v1-..."
-              autoComplete="off"
-              onChange={(event) => onChange({ apiKey: event.target.value.trim() })}
-            />
-          </label>
-          <p className="hint">
-            Free key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">openrouter.ai/keys</a>. Stored only in this
-            browser (localStorage) and sent directly to OpenRouter.
-          </p>
-        </section>
+        {directMode ? (
+          <section className="field-group">
+            <label className="field">
+              <span>OpenRouter API key</span>
+              <input
+                type="password"
+                value={settings.apiKey}
+                placeholder="sk-or-v1-..."
+                autoComplete="off"
+                onChange={(event) => onChange({ apiKey: event.target.value.trim() })}
+              />
+            </label>
+            <p className="hint">
+              Free key from <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">openrouter.ai/keys</a>. Stored only in this
+              browser and sent only to OpenRouter. A free key also unlocks image vision.
+            </p>
+          </section>
+        ) : (
+          <section className="field-group">
+            <h3>Access</h3>
+            <div className="status-box">
+              <strong>No key needed</strong>
+              <p>
+                This build talks to a secure relay that holds the model credential server-side. Only free models are allowed through it, so nothing
+                can be charged, and your browser never stores a key.
+              </p>
+            </div>
+          </section>
+        )}
 
         <section className="field-group">
           <h3>Identity</h3>
@@ -65,37 +94,42 @@ export function SettingsPanel({ settings, onChange, voices, onClose, onExport, o
 
         <section className="field-group">
           <h3>Models</h3>
-          <label className="field">
-            <span>Chat model</span>
-            <select value={settings.chatModel} onChange={(event) => onChange({ chatModel: event.target.value })}>
-              {FREE_MODELS.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                  {model.vision ? ' · vision' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Vision model</span>
-            <select value={settings.visionModel} onChange={(event) => onChange({ visionModel: event.target.value })}>
-              {visionModels.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Background model (memory extraction)</span>
-            <select value={settings.fastModel} onChange={(event) => onChange({ fastModel: event.target.value })}>
-              {FREE_MODELS.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {hasKey ? (
+            <>
+              <label className="field">
+                <span>Chat model</span>
+                <select value={settings.chatModel} onChange={(event) => onChange({ chatModel: event.target.value })}>
+                  {renderModelOptions(openrouterModels, settings.chatModel)}
+                </select>
+              </label>
+              <label className="field">
+                <span>Vision model</span>
+                <select value={settings.visionModel} onChange={(event) => onChange({ visionModel: event.target.value })}>
+                  {renderModelOptions(visionModels, settings.visionModel)}
+                </select>
+              </label>
+              <label className="field">
+                <span>Background model (memory extraction)</span>
+                <select value={settings.fastModel} onChange={(event) => onChange({ fastModel: event.target.value })}>
+                  {renderModelOptions(openrouterModels, settings.fastModel)}
+                </select>
+              </label>
+              <p className="hint">
+                {directMode
+                  ? 'Your choice is tried first, then the rest of the free queue. Free models are rate-limited, so the queue may switch mid-answer.'
+                  : 'Served through the keyless relay. Only free models are allowed, so a switch can never spend money.'}
+              </p>
+            </>
+          ) : (
+            <div className="status-box">
+              <strong>Free public mode active</strong>
+              <p>
+                No key, no setup. Every answer searches the live free-model catalog, queues fallbacks, and continues mid-sentence on the next model
+                when one hits its limit.
+              </p>
+              <p className="hint">Text only. Add an optional free key above for image vision and OpenRouter models.</p>
+            </div>
+          )}
           <label className="check">
             <input type="checkbox" checked={settings.autoMemory} onChange={(event) => onChange({ autoMemory: event.target.checked })} />
             <span>Automatically remember durable facts from conversation</span>
@@ -156,14 +190,14 @@ export function SettingsPanel({ settings, onChange, voices, onClose, onExport, o
             <button className="btn danger-ghost" onClick={onClearChat}>Clear chat</button>
             <button className="btn danger-ghost" onClick={onClearMemory}>Clear memory</button>
           </div>
-          <p className="hint">Conversations, facts, notes and reminders never leave this browser. Only prompts and images you send go to OpenRouter.</p>
+          <p className="hint">Conversations, facts, notes and reminders never leave this browser. Only prompts, and images you deliberately share, go to the free model provider.</p>
         </section>
 
         <section className="field-group about">
           <h3>About</h3>
           <p className="hint">
-            J.A.R.V.I.S v0.1 — free-model personal agent PWA. Voice, vision, memory and free web research. The local backend phase adds Whisper,
-            Kokoro, OpenCode execution and a private Tailscale server.
+            J.A.R.V.I.S v0.2 — keyless personal agent PWA. Free public models with an automatic queue and mid-answer switching, voice, optional
+            vision, memory and free web research. The local backend phase adds Whisper, Kokoro, OpenCode execution and a private Tailscale server.
           </p>
         </section>
       </div>

@@ -24,12 +24,15 @@ Ecosystem references that informed the roadmap: **Letta/MemGPT** (tiered memory)
 ## Feature decisions
 
 ### Shipped in this PWA
+- **Keyless operation** — a Supabase Edge Function relay holds one OpenRouter key server-side and forwards only free `:free` models; visitors never see or paste a key.
+- **Runtime model discovery** — the live free catalog is fetched from OpenRouter, cached for an hour, with a bundled static list as offline fallback.
+- **Automatic model queue** — your preferred model first, alternatives shuffled behind it, 90-second cooldowns for failures, and Pollinations as the final keyless fallback.
+- **Seamless mid-answer continuation** — when a provider cuts a stream at its limit, the partial reply is passed to the next model with a continue instruction instead of restarting the conversation.
 - **Voice I/O** — browser speech recognition + sentence-streamed TTS with barge-in.
-- **Vision** — screen share, camera capture, image upload → free vision model.
+- **Vision** — screen share, camera capture, image upload → free OpenRouter vision model, no key.
 - **Free research** — DuckDuckGo + page excerpts, cited sources under each answer.
-- **Personal memory** — manual facts, auto-extracted facts every 4 user turns, notes, reminders, rolling summaries, export/import.
+- **Personal memory** — manual facts, auto-extracted facts every 4 turns keyed / 8 turns on the relay, notes, reminders, rolling summaries, export/import.
 - **Persona** — named assistant (Jarvis), configurable user name and voice.
-- **Resilience** — model fallback chain for free-tier rate limits.
 - **Installable PWA** — laptop, Android, iPhone (Add to Home Screen).
 
 ### Deliberately deferred (requires a backend / native capabilities)
@@ -43,7 +46,7 @@ These are mapped to Phases 2–7 in the roadmap, with the architecture already d
 
 ## Design principles carried over
 
-1. **Local-first privacy** — memory and keys stay on the user's device.
+1. **Local-first privacy** — memory stays on the user's device; the relay never stores chats and secrets stay server-side.
 2. **Free-by-default** — no paid API required anywhere.
 3. **Graceful degradation** — free models fail; the chain keeps working.
 4. **Explicit consent for senses** — screen/camera only on user action.

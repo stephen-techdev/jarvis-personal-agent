@@ -433,17 +433,21 @@ a {
   max-width: 620px;
   margin: 26px auto 0;
   padding: 16px 18px;
-  border: 1px solid rgba(255, 184, 77, 0.35);
+  border: 1px solid rgba(56, 225, 255, 0.28);
   border-radius: 14px;
-  background: rgba(255, 184, 77, 0.07);
+  background: rgba(56, 225, 255, 0.06);
   text-align: left;
 }
 
 .key-banner p {
   margin: 0;
-  color: #f3d9b4;
+  color: #cfeeff;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.key-banner strong {
+  color: #9ef2ff;
 }
 
 /* ---------- messages ---------- */
@@ -637,17 +641,26 @@ a {
   background: linear-gradient(180deg, transparent, rgba(5, 7, 12, 0.92) 30%);
 }
 
-.key-strip {
-  display: block;
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 9px 14px;
-  border: 1px dashed rgba(255, 184, 77, 0.45);
-  border-radius: 10px;
-  background: rgba(255, 184, 77, 0.06);
-  color: #f0d4a8;
+.status-box {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(56, 225, 255, 0.22);
+  border-radius: 12px;
+  background: rgba(56, 225, 255, 0.05);
+  color: var(--dim);
   font-size: 12px;
-  text-align: center;
+  line-height: 1.55;
+}
+
+.status-box strong {
+  display: block;
+  margin-bottom: 4px;
+  color: #bfefff;
+  font-size: 12.5px;
+}
+
+.status-box p {
+  margin: 0;
 }
 
 .attachment-chip {

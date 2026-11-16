@@ -1,5 +1,5 @@
 import type { ChatMessage, Fact } from '../types'
-import { chatOnce, type ChatMsg } from './openrouter'
+import { chatOnce, type ChatMsg, type Provider } from './openrouter'
 import { uid } from './storage'
 
 function parseJsonArray(raw: string): string[] {
@@ -19,6 +19,7 @@ function parseJsonArray(raw: string): string[] {
 }
 
 export async function extractFacts(
+  provider: Provider,
   apiKey: string,
   model: string,
   conversation: ChatMessage[],
@@ -38,7 +39,7 @@ export async function extractFacts(
     },
     { role: 'user', content: transcript },
   ]
-  const raw = await chatOnce({ apiKey, model, messages, signal, temperature: 0.2, maxTokens: 220 })
+  const raw = await chatOnce({ provider, apiKey, model, messages, signal, temperature: 0.2, maxTokens: 220 })
   return parseJsonArray(raw)
 }
 
@@ -55,6 +56,7 @@ export function mergeFacts(existing: Fact[], incoming: string[]): { facts: Fact[
 }
 
 export async function summarizeConversation(
+  provider: Provider,
   apiKey: string,
   model: string,
   messages: ChatMessage[],
@@ -73,5 +75,5 @@ export async function summarizeConversation(
     },
     { role: 'user', content: transcript },
   ]
-  return (await chatOnce({ apiKey, model, messages: prompt, signal, temperature: 0.3, maxTokens: 260 })).trim()
+  return (await chatOnce({ provider, apiKey, model, messages: prompt, signal, temperature: 0.3, maxTokens: 260 })).trim()
 }
